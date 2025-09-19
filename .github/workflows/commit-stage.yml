@@ -15,13 +15,17 @@ jobs:
       security-events: write
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Set up JDK
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
           cache: gradle
+      - name: Build, unit tests and integration tests
+        run: |
+          chmod +x gradlew
+          ./gradlew build
       - name: Code vulnerability scanning
         uses: anchore/scan-action@v3
         id: scan
@@ -29,59 +33,51 @@ jobs:
           path: "${{ github.workspace }}"
           fail-build: false
           severity-cutoff: high
-          acs-report-enable: true
       - name: Upload vulnerability report
-        uses: github.codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         if: success() || failure()
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
-      - name: Build, unit tests and integration tests
-        run: |
-          chmod +x gradlew
-          ./gradlew build
-
   package:
     name: Package and Publish
-    if: ${{ github.ref == 'refs/heads/main' }} # 잡을 main 브랜치에 대해서만 실행한다.
-    needs: [ build ] # build 잡이 성공적으로 수행된 경우만 이 잡을 실행한다.
-    runs-on: ubuntu-22.04  # 우분투 22.04에서 잡을 실행
+    if: ${{ github.ref == 'refs/heads/main' }}
+    needs: [ build ]
+    runs-on: ubuntu-22.04
     permissions:
-      contents: read # 현재 깃 저장소를 체크아웃하기 위한 권한
-      package: write # 깃허브 컨테이너 저장소로 이미지를 업로드하기 위한 권한
-      security-events: write  # 깃허브로 보안 이벤트를 제출하기 위한 권한
+      contents: read
+      packages: write
+      security-events: write
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v3  # 현재 깃 저장소(catalog-service)를 체크아웃한다.
+        uses: actions/checkout@v4
       - name: Set up JDK
-        uses: actions/setup-java@v3 # 자바 런타임을 설치하고 설정한다.
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
           cache: gradle
       - name: Build container image
         run: |
           chmod +x gradlew
-          ./gradlew bootBuildImage \ 
+          ./gradlew bootBuildImage \
             --imageName ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}
-
       - name: OCI image vulnerability scanning
         uses: anchore/scan-action@v3
         id: scan
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}
-          fail-build: false # 이미지에서 취약점이 발견되지 않더라도 빌드를 실패로 만들지 않는다.
+          fail-build: false
           severity-cutoff: high
-          acs-report-enable: true
       - name: Upload vulnerability report
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         if: success() || failure()
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
       - name: Log into container registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }} # 저장소 정보는 환경 변수로 정의된다.
-          username: ${{ github.actor }} # 깃허브 액션이 제공하는 현재 사용자의 깃허브 유저명
-          password: ${{ secrets.GITHUB_TOKEN }} # 저장소와 인증하기 위해 필요한 토큰 깃허브 액션이 제공한다.
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish container image
         run: docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}
